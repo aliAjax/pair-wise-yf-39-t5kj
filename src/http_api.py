@@ -19,7 +19,7 @@ def _json_bytes(payload):
     return json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 
-def create_handler(service, rules, static_dir):
+def create_handler(service, rules, static_dir, offline_service=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ModularPython/1.0"
 
@@ -85,6 +85,10 @@ def create_handler(service, rules, static_dir):
                         return self._send_html(200, handle.read())
                 if parts == ["api", "audit"]:
                     return self._send(200, {"items": service.audit_log()})
+                if len(parts) == 4 and parts[:3] == ["api", "offline", "batches"]:
+                    if not offline_service:
+                        raise NotFoundError("offline sync is not enabled")
+                    return self._send(200, offline_service.get_batch(parts[3]))
                 if len(parts) == 3 and parts[:2] == ["api", "entities"]:
                     return self._send(200, service.get(parts[2]))
                 if len(parts) >= 2 and parts[0] == "api":
@@ -138,6 +142,27 @@ def create_handler(service, rules, static_dir):
                         200,
                         service.transition(actor, parts[2], parts[3], self._body(), None),
                     )
+                if len(parts) == 2 and parts == ["api", "offline"]:
+                    raise NotFoundError("not found")
+                if len(parts) == 3 and parts[:2] == ["api", "offline"] and parts[2] == "batches":
+                    if not offline_service:
+                        raise NotFoundError("offline sync is not enabled")
+                    body = self._body()
+                    batch_id = body.pop("batch_id", None)
+                    device_id = body.pop("device_id", None)
+                    items = body.pop("items", None)
+                    if not batch_id:
+                        raise ValidationError("batch_id is required")
+                    if not isinstance(items, list) or not items:
+                        raise ValidationError("items must be a non-empty list")
+                    return self._send(
+                        200,
+                        offline_service.submit_batch(actor, batch_id, items, device_id),
+                    )
+                if len(parts) == 3 and parts[:2] == ["api", "offline"] and parts[2] == "recompute":
+                    if not offline_service:
+                        raise NotFoundError("offline sync is not enabled")
+                    return self._send(200, {"items": offline_service.recompute_pending(actor)})
                 if len(parts) == 2 and parts[0] == "api":
                     body = self._body()
                     idem = self.headers.get("Idempotency-Key")
@@ -152,6 +177,6 @@ def create_handler(service, rules, static_dir):
     return Handler
 
 
-def create_server(host, port, service, rules, static_dir):
-    handler = create_handler(service, rules, static_dir)
+def create_server(host, port, service, rules, static_dir, offline_service=None):
+    handler = create_handler(service, rules, static_dir, offline_service)
     return ThreadingHTTPServer((host, int(port)), handler)
