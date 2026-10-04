@@ -22,7 +22,9 @@
 GET  /api/&lt;kind&gt;
 POST /api/&lt;kind&gt;
 GET  /api/entities/&lt;id&gt;
-POST /api/entities/&lt;id&gt;/actions</pre>
+POST /api/entities/&lt;id&gt;/actions
+PUT  /api/sync/batches/&lt;batch_id&gt;   离线批次可续传上传
+GET  /api/sync/&lt;batch_id&gt;           查询 confirmed_seq 检查点</pre>
 </main>
 <script>
 async function checkHealth() {

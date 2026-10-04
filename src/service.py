@@ -56,7 +56,34 @@ class DomainService:
             updated["status"],
             {"patch": patch},
         )
+        # Derived conclusions change the optimistic version of the source
+        # observations, so an offline edit based on the pre-conclusion version
+        # is detected as stale instead of silently overwriting the lab result
+        # or the confirmed cluster.
+        if updated["kind"] == "sample" and action in ("lab_result", "retest", "close"):
+            self._bump_observation(updated["data"].get("observation_id"), actor, action)
+        if updated["kind"] == "cluster" and action == "confirm_cluster":
+            for observation_id in updated["data"].get("observation_ids", []):
+                self._bump_observation(observation_id, actor, "confirm_cluster")
         return updated
+
+    def _bump_observation(self, observation_id, actor, reason):
+        if not observation_id:
+            return
+        observation = self.repository.get_entity(observation_id)
+        if not observation:
+            return
+        bumped = self.repository.update_entity(
+            observation_id, observation["version"], observation["status"], observation["data"]
+        )
+        self.audit.record(
+            observation_id,
+            actor,
+            "downstream_update",
+            observation["status"],
+            bumped["status"],
+            {"reason": reason, "version": bumped["version"]},
+        )
 
     def get(self, entity_id):
         entity = self.repository.get_entity(entity_id)

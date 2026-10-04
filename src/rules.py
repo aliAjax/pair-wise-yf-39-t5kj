@@ -54,15 +54,27 @@ def is_cluster(observations, max_days=14, radius_km=10):
 CUSTOM_CREATE = {'observation': _validate_observation, 'sample': _validate_sample}
 CUSTOM_TRANSITIONS = {('sample', 'lab_result'): _validate_lab_result}
 
+# Offline amends may only touch these fields. Location/species/time on an
+# observation are "protected" because lab results and cluster conclusions
+# derive from them; changing them on a current version invalidates downstream
+# conclusions, while a stale base version is returned as a conflict instead.
+OFFLINE_AMEND_FIELDS = {
+    'observation': (
+        'location', 'lat', 'lon', 'observed_at', 'species', 'condition', 'note',
+    ),
+    'sample': ('sample_code', 'storage', 'note'),
+}
+OBSERVATION_PROTECTED_FIELDS = ('location', 'lat', 'lon', 'observed_at', 'species')
+
 
 class RuleEngine:
     ALIASES = {'observations': 'observation', 'samples': 'sample', 'clusters': 'cluster'}
     INITIAL_STATUS = {'observation': 'captured', 'sample': 'collected', 'cluster': 'draft'}
-    TRANSITIONS = {'observation': {'submit': (('captured',), 'submitted'), 'reject': (('submitted',), 'rejected'), 'link_sample': (('submitted',), 'sampled')}, 'sample': {'send_lab': (('collected',), 'in_lab'), 'lab_result': (('in_lab',), 'resulted'), 'retest': (('resulted',), 'in_lab'), 'close': (('resulted',), 'closed')}, 'cluster': {'confirm_cluster': (('draft',), 'confirmed'), 'dismiss': (('draft',), 'dismissed')}}
+    TRANSITIONS = {'observation': {'submit': (('captured',), 'submitted'), 'reject': (('submitted',), 'rejected'), 'link_sample': (('submitted',), 'sampled')}, 'sample': {'send_lab': (('collected',), 'in_lab'), 'lab_result': (('in_lab',), 'resulted'), 'retest': (('resulted',), 'in_lab'), 'invalidate_result': (('resulted', 'closed'), 'in_lab'), 'close': (('resulted',), 'closed')}, 'cluster': {'confirm_cluster': (('draft',), 'confirmed'), 'dismiss': (('draft',), 'dismissed'), 'recompute_cluster': (('confirmed',), 'confirmed'), 'invalidate_cluster': (('confirmed',), 'invalidated')}}
     CREATE_REQUIRED = {'observation': ('event_id', 'species', 'location', 'observed_at', 'lat', 'lon'), 'sample': ('observation_id', 'sample_code'), 'cluster': ('region',)}
     ACTION_REQUIRED = {('observation', 'submit'): ('location', 'observed_at'), ('observation', 'reject'): ('reason',), ('observation', 'link_sample'): ('sample_id',), ('sample', 'send_lab'): ('lab_id',), ('sample', 'lab_result'): ('result', 'result_at'), ('sample', 'retest'): ('reason',), ('sample', 'close'): ('outcome',), ('cluster', 'confirm_cluster'): ('observation_ids', 'centroid'), ('cluster', 'dismiss'): ('reason',)}
     CREATE_ROLES = {'observation': ('admin', 'field'), 'sample': ('admin', 'field'), 'cluster': ('admin', 'epidemiologist')}
-    ROLE_ACTIONS = {'submit': ('admin', 'field'), 'reject': ('admin', 'epidemiologist'), 'link_sample': ('admin', 'field'), 'send_lab': ('admin', 'field'), 'lab_result': ('admin', 'lab'), 'retest': ('admin', 'lab'), 'close': ('admin', 'epidemiologist'), 'confirm_cluster': ('admin', 'epidemiologist'), 'dismiss': ('admin', 'epidemiologist')}
+    ROLE_ACTIONS = {'submit': ('admin', 'field'), 'reject': ('admin', 'epidemiologist'), 'link_sample': ('admin', 'field'), 'send_lab': ('admin', 'field'), 'lab_result': ('admin', 'lab'), 'retest': ('admin', 'lab'), 'invalidate_result': ('admin', 'field', 'lab'), 'close': ('admin', 'epidemiologist'), 'confirm_cluster': ('admin', 'epidemiologist'), 'dismiss': ('admin', 'epidemiologist'), 'recompute_cluster': ('admin', 'field', 'epidemiologist'), 'invalidate_cluster': ('admin', 'field', 'epidemiologist')}
 
     def normalize_kind(self, kind):
         return self.ALIASES.get(kind, kind)

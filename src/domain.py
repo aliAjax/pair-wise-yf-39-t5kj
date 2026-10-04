@@ -23,6 +23,18 @@ class ConflictError(DomainError):
     """A version or uniqueness constraint was violated."""
 
 
+class StaleConflictError(ConflictError):
+    """An offline edit is stale: the server already derived downstream conclusions.
+
+    The stale location/species/time is returned as conflict details and must
+    never overwrite the current values.
+    """
+
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details or {}
+
+
 class InvalidTransition(DomainError):
     """The requested state transition is not valid."""
 
